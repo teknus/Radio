@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	f, err := os.Open("soldier.mp3")
+	f, err := os.Open("output.mp3")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -17,7 +17,7 @@ func main() {
 	data := make([]byte, 1024*16)
 	for {
 		_, err = f.Read(data)
-		charData := string(data) + "\n"
+		charData := string(data) + "\n" //teste para o delimitador no socket
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -26,6 +26,6 @@ func main() {
 			return
 		}
 		fmt.Println(charData[:len(charData)-2])
-		time.Sleep(1)
+		time.Sleep(3)
 	}
 }
