@@ -1,1 +1,0 @@
-ffmpeg -i soldier.mp3 -codec:a libmp3lame -qscale:a 5 output.mp3
