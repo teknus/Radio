@@ -1,21 +1,3 @@
-// package main
-
-// import (
-// 	"bufio"
-// 	"fmt"
-// 	"os"
-// )
-
-// func main() {
-// 	file, err := os.Open("output.mp3")
-// 	if err != nil {
-// 		fmt.Println("Errou")
-// 		return
-// 	}
-// 	f := bufio.NewReader(file)
-// 	_, _ = f.Read()
-// }
-
 package main
 
 import (
