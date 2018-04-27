@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/teknus/Radio/format_msg"
 )
 
 const buffSize = 1024 * 16
@@ -67,8 +69,9 @@ func main() {
 }
 
 type Station struct {
-	clientList []*Client
-	newClient  chan net.Conn
+	clientList    []*Client
+	newClient     chan net.Conn
+	changeStation chan *Client
 }
 
 type Client struct {
@@ -80,9 +83,11 @@ type Client struct {
 func (c *Client) ListenConn() {
 	reader := bufio.NewReader(c.conn)
 	for {
-		command, err := reader.ReadString('\n')
+		command, err := reader.ReadBytes(byte('\n'))
 		if err == nil {
-			c.conn.Write([]byte(command + "@"))
+			command8, command16 := format_msg.UnpackingMsg(command[:len(command)-1])
+			fmt.Println(command8, command16)
+			c.conn.Write(command)
 			if err != nil {
 				fmt.Println("No client connection")
 			}
@@ -107,6 +112,7 @@ func (server *Server) StartServer(arg []string) {
 
 func (server *Server) AcceptConn() {
 	go server.HandleClients()
+	fmt.Println("Server Up")
 	for {
 		conn, err := server.ln.Accept()
 		if err == nil || conn != nil {
