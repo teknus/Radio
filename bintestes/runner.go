@@ -1,15 +1,13 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os/exec"
 )
 
 func main() {
-	for {
-		cmd := exec.Command("./client_listnner", "| mpg123 -")
-		log.Printf("Running command and waiting for it to finish...")
-		err := cmd.Run()
-		log.Printf("Command finished with error: %v", err)
-	}
+	cmd := exec.Command("./client_listenner | mpg123 - ", "")
+	fmt.Printf("Running command and waiting for it to finish...\n")
+	err := cmd.Run()
+	fmt.Printf("Command finished with error: %v\n", err)
 }

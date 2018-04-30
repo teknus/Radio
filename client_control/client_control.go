@@ -52,8 +52,9 @@ func main() {
 		return
 	}
 	_, ui16 := handShake(conn, udpport16)
+	l := ui16
 	for ui16 > 0 {
-		fmt.Println("Stattions ", int(ui16))
+		fmt.Println("Stattions ", int(ui16)-1)
 		ui16 = ui16 - uint16(1)
 	}
 	go readShell(keyBoardInput)
@@ -64,6 +65,9 @@ func main() {
 			case msg := <-keyBoardInput:
 				msg = msg[:len(msg)-1]
 				if msg == "q" {
+					station := l
+					setStation := format_msg.PackingMsg(uint8(2), station)
+					conn.Write(setStation)
 					conn.Close()
 					fmt.Println("Client Closed")
 					return

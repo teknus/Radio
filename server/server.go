@@ -84,10 +84,14 @@ func (server *Server) HandleClients(stations []*Station, changeStation chan *Cha
 			}
 			go client.HandleConn(client.conn, client.send, changeStation, client.sendStream)
 		case change := <-changeStation:
-			fmt.Println(int(change.old), len(stations))
+			for _, st := range stations {
+				fmt.Println(len(st.clientList))
+			}
+			fmt.Println("changing", int(change.old), int(change.new), len(stations))
 			if int(change.old) < len(stations) {
 				stations[int(change.old)].delClient <- change.client
 				if int(change.new) < len(stations) && int(change.new) >= 0 {
+					change.client.station = change.new
 					stations[int(change.new)].newClient <- change.client
 				} else {
 					msg := "Invalid new Station"
@@ -105,62 +109,52 @@ func (server *Server) HandleClients(stations []*Station, changeStation chan *Cha
 }
 
 type Station struct {
-	clientList chan []*Client
+	clientList map[*Client]Client
 	newClient  chan *Client
 	delClient  chan *Client
 	buff       chan []byte
 	name       string
 }
 
+const sleep = 1000
+
 func (station *Station) musicLoop(name string, buff chan []byte) {
 	data := make([]byte, buffSize)
-	music := make([][]byte, 0)
 	for {
-		if len(music) <= 0 {
-			f, err := os.Open(name)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			defer f.Close()
-			for {
-				_, err = f.Read(data)
-				if err != nil {
-					if err == io.EOF {
-						fmt.Println("Restart")
-						break
-					}
-				}
-				time.Sleep(1 * time.Second)
-				buff <- data
-			}
+		f, err := os.Open(name)
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
-		for n, i := range music {
-			time.Sleep(1 * time.Second)
-			if n == len(music) {
-				break
+		defer f.Close()
+		for {
+			_, err = f.Read(data)
+			if err != nil {
+				if err == io.EOF {
+					fmt.Println("Restart ", name)
+					break
+				}
 			}
-			buff <- i
+			time.Sleep(sleep * time.Millisecond)
+			buff <- data
 		}
 	}
 }
 
 func (station *Station) HandleClients(newClient chan *Client, delClient chan *Client,
 	toAll chan []byte) {
-	clientList := make([]*Client, 0)
+	clientList := make(map[*Client]Client)
+	station.clientList = clientList
 	for {
 		select {
 		case client := <-newClient:
-			clientList = append(clientList, client)
+			clientList[client] = *client
 			client.send <- format_msg.PackingStringMsg(uint8(1), uint8(len(station.name)), station.name)
+			fmt.Println("Station add ", station.name, len(clientList))
 		case client := <-delClient:
-			temp := make([]*Client, 0)
-			for _, c := range clientList {
-				if c != client {
-					temp = append(temp, c)
-				}
-			}
-			clientList = temp
+			fmt.Println("pre delete Station ", station.name, len(clientList))
+			delete(clientList, client)
+			fmt.Println("Station ", station.name, len(clientList))
 		case buffer := <-toAll:
 			for _, client := range clientList {
 				client.sendStream <- buffer
@@ -193,10 +187,16 @@ func (c *Client) HandleConn(conn net.Conn, send chan []byte,
 		select {
 		case buff := <-sendStream:
 			if c.connUDP != nil {
-				c.connUDP.Write(buff)
+				_, err := c.connUDP.Write(buff)
+				if err != nil {
+					return
+				}
 			}
 		case buff := <-send:
-			conn.Write(buff)
+			_, err := conn.Write(buff)
+			if err != nil {
+				return
+			}
 		default:
 			continue
 		}
@@ -218,6 +218,14 @@ func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []b
 				}
 				send <- format_msg.PackingMsg(uint8(1), c.numStations)
 			} else if command8 == uint8(1) {
+				changestation <- &ChangeStation{
+					old:    c.station,
+					new:    command16,
+					client: c,
+				}
+			} else if command8 == uint8(2) {
+				conn.Close()
+				c.connUDP.Close()
 				changestation <- &ChangeStation{
 					old:    c.station,
 					new:    command16,

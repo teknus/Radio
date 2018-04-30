@@ -4,11 +4,17 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 )
 
 func main() {
+	port, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		fmt.Println("Error command line")
+	}
 	addr := net.UDPAddr{
-		Port: 9090,
+		Port: port,
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
