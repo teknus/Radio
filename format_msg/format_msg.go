@@ -55,3 +55,29 @@ func UnpackingMsg(msg []byte) (uint8, uint16) {
 	}
 	return ui8, ui16
 }
+
+func PackingStringMsg(i uint8, songnamesize uint8, name string) []byte {
+	command, err := From8ToBytes(i)
+	if err != nil {
+		fmt.Println("Packing error uint8")
+	}
+	size, err := From8ToBytes(i)
+	if err != nil {
+		fmt.Println("Packing error uint8")
+	}
+	nameByte := []byte(name)
+	return append(append(command, append(size, nameByte...)...), []byte("\n")...)
+}
+
+func UnpackingStringMsg(msg []byte) (i uint8, songnamesize uint8, name string) {
+	ui8, err := FromBytes8(msg[:1])
+	if err != nil {
+		fmt.Println("Upacking error uint8")
+	}
+	size, err := FromBytes8(msg[2:3])
+	if err != nil {
+		fmt.Println("Upacking error uint8")
+	}
+	name = string(msg[2:])
+	return ui8, size, name
+}

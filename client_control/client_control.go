@@ -20,12 +20,13 @@ func readShell(toControl chan<- string) {
 	close(toControl)
 }
 
-func readFromConn(fromControl chan []byte, conn net.Conn) {
+func readFromConn(fromControl chan string, conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
 		text, err := reader.ReadBytes(byte('\n'))
 		if err == nil {
-			fromControl <- text
+			_, _, str := format_msg.UnpackingStringMsg(text)
+			fromControl <- str
 		}
 	}
 }
@@ -43,15 +44,18 @@ func handShake(conn net.Conn, udpport uint16) (uint8, uint16) {
 
 func main() {
 	keyBoardInput := make(chan string)
-	fromServer := make(chan []byte)
+	fromServer := make(chan string)
 	conn, err := net.Dial("tcp", "localhost:"+os.Args[1])
 	udpport, err := strconv.Atoi(os.Args[2])
 	udpport16 := uint16(udpport)
 	if err != nil {
 		return
 	}
-	ui8, ui16 := handShake(conn, udpport16)
-	fmt.Println(ui8, ui16)
+	_, ui16 := handShake(conn, udpport16)
+	for ui16 > 0 {
+		fmt.Println("Stattions ", int(ui16))
+		ui16 = ui16 - uint16(1)
+	}
 	go readShell(keyBoardInput)
 	go readFromConn(fromServer, conn)
 	if err == nil {
