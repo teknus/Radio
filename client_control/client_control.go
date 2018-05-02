@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/teknus/Radio/format_msg"
 )
@@ -60,6 +61,7 @@ func main() {
 	go readShell(keyBoardInput)
 	go readFromConn(fromServer, conn)
 	if err == nil {
+		tempReader := bufio.NewReader(conn)
 		for {
 			select {
 			case msg := <-keyBoardInput:
@@ -83,6 +85,20 @@ func main() {
 				}
 			case msg := <-fromServer:
 				fmt.Println(msg)
+			default:
+				station := uint16(0)
+				setStation := format_msg.PackingMsg(uint8(3), station)
+				_, err := conn.Write(setStation)
+				if err == nil {
+					time.Sleep(1 * time.Second)
+					alive, _ := tempReader.ReadBytes(byte('\n'))
+					ui8, _ := format_msg.UnpackingMsg(alive)
+					if ui8 == uint8(3) {
+						continue
+					}
+				} else {
+					conn.Close()
+				}
 			}
 		}
 	}

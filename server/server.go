@@ -19,6 +19,8 @@ func main() {
 	server := &Server{}
 	server.toclientsList = make(chan net.Conn, 1)
 	server.changeStation = make(chan *ChangeStation, 1)
+	server.listAll = make(chan bool, 1)
+	server.closeAll = make(chan bool, 1)
 	server.StartServer(os.Args)
 }
 
@@ -27,6 +29,18 @@ type Server struct {
 	changeStation chan *ChangeStation
 	toclientsList chan net.Conn
 	stations      []*Station
+	listAll       chan bool
+	closeAll      chan bool
+}
+
+func readShell(toControl chan<- string) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Shell")
+	for {
+		text, _ := reader.ReadString('\n')
+		toControl <- text
+	}
+	close(toControl)
 }
 
 func (server *Server) startStation(names []string, stationChan []*Station) []*Station {
@@ -37,6 +51,8 @@ func (server *Server) startStation(names []string, stationChan []*Station) []*St
 			newClient: make(chan *Client, 1),
 			delClient: make(chan *Client, 1),
 			name:      name,
+			closeAll:  make(chan bool, 1),
+			listAll:   make(chan bool, 1),
 		}
 		go station.musicLoop(name, station.buff)
 		go station.HandleClients(station.newClient, station.delClient, station.buff)
@@ -50,13 +66,32 @@ func (server *Server) StartServer(arg []string) {
 	if err != nil {
 		log.Println(err)
 	}
+	fromKeyboard := make(chan string, 1)
 	server.ln = ln
 	temp := make([]string, 0)
 	for _, station := range arg[2:] {
 		temp = append(temp, station)
 	}
-	go server.HandleClients(server.startStation(temp, server.stations), server.changeStation, server.toclientsList)
+	go readShell(fromKeyboard)
+	go server.ReadCommands(fromKeyboard, server.listAll, server.closeAll)
+	go server.HandleClients(server.startStation(temp, server.stations), server.changeStation, server.toclientsList, server.listAll, server.closeAll)
 	server.AcceptConn(server.ln, server.toclientsList)
+}
+
+func (server *Server) ReadCommands(fromKeyboard chan string, listAll chan bool, closeAll chan bool) {
+	for {
+		select {
+		case msg := <-fromKeyboard:
+			msg = msg[:len(msg)-1]
+			if msg == "p" {
+				listAll <- true
+			} else if msg == "q" {
+				closeAll <- true
+			} else {
+				fmt.Println("Invalid Command")
+			}
+		}
+	}
 }
 
 func (server *Server) AcceptConn(ln net.Listener, toclientsList chan net.Conn) {
@@ -70,7 +105,7 @@ func (server *Server) AcceptConn(ln net.Listener, toclientsList chan net.Conn) {
 }
 
 func (server *Server) HandleClients(stations []*Station, changeStation chan *ChangeStation,
-	toclientsList chan net.Conn) {
+	toclientsList chan net.Conn, listAll chan bool, closeAll chan bool) {
 	for {
 		select {
 		case newConn := <-toclientsList:
@@ -93,13 +128,18 @@ func (server *Server) HandleClients(stations []*Station, changeStation chan *Cha
 					msg := "Invalid new Station"
 					change.client.send <- format_msg.PackingStringMsg(uint8(2), uint8(len(msg)), msg)
 				}
-
 			} else {
 				msg := "Invalid Old Station"
 				change.client.send <- format_msg.PackingStringMsg(uint8(2), uint8(len(msg)), msg)
 			}
-		default:
-			continue
+		case <-closeAll:
+			for _, station := range stations {
+				station.closeAll <- true
+			}
+		case <-listAll:
+			for _, stations := range stations {
+				stations.listAll <- true
+			}
 		}
 	}
 }
@@ -110,6 +150,8 @@ type Station struct {
 	delClient  chan *Client
 	buff       chan []byte
 	name       string
+	closeAll   chan bool
+	listAll    chan bool
 }
 
 const sleep = 1000
@@ -190,8 +232,6 @@ func (c *Client) HandleConn(conn net.Conn, send chan []byte,
 			if err != nil {
 				return
 			}
-		default:
-			continue
 		}
 	}
 }
@@ -223,7 +263,17 @@ func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []b
 					new:    command16,
 					client: c,
 				}
+			} else if command8 == uint8(3) {
+				send <- format_msg.PackingStringMsg(uint8(3), uint8(0), "Alive")
 			}
+		} else {
+			changestation <- &ChangeStation{
+				old:    c.station,
+				new:    c.numStations,
+				client: c,
+			}
+			conn.Close()
+			c.connUDP.Close()
 		}
 	}
 }
