@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/teknus/Radio/format_msg"
 )
@@ -21,13 +20,19 @@ func readShell(toControl chan<- string) {
 	close(toControl)
 }
 
-func readFromConn(fromControl chan string, conn net.Conn) {
+func readFromConn(fromControl chan string, conn net.Conn, alive chan bool) {
 	reader := bufio.NewReader(conn)
 	for {
 		text, err := reader.ReadBytes(byte('\n'))
 		if err == nil {
-			_, _, str := format_msg.UnpackingStringMsg(text)
-			fromControl <- str
+			ui8, _, str := format_msg.UnpackingStringMsg(text)
+			if ui8 == uint8(1) {
+				fromControl <- str
+			} else if ui8 == uint8(3) {
+				alive <- true
+			}
+		} else {
+			os.Exit(0)
 		}
 	}
 }
@@ -46,6 +51,7 @@ func handShake(conn net.Conn, udpport uint16) (uint8, uint16) {
 func main() {
 	keyBoardInput := make(chan string)
 	fromServer := make(chan string)
+	alive := make(chan bool)
 	conn, err := net.Dial("tcp", "localhost:"+os.Args[1])
 	udpport, err := strconv.Atoi(os.Args[2])
 	udpport16 := uint16(udpport)
@@ -59,9 +65,8 @@ func main() {
 		ui16 = ui16 - uint16(1)
 	}
 	go readShell(keyBoardInput)
-	go readFromConn(fromServer, conn)
+	go readFromConn(fromServer, conn, alive)
 	if err == nil {
-		tempReader := bufio.NewReader(conn)
 		for {
 			select {
 			case msg := <-keyBoardInput:
@@ -85,20 +90,9 @@ func main() {
 				}
 			case msg := <-fromServer:
 				fmt.Println(msg)
-			default:
-				station := uint16(0)
-				setStation := format_msg.PackingMsg(uint8(3), station)
-				_, err := conn.Write(setStation)
-				if err == nil {
-					time.Sleep(1 * time.Second)
-					alive, _ := tempReader.ReadBytes(byte('\n'))
-					ui8, _ := format_msg.UnpackingMsg(alive)
-					if ui8 == uint8(3) {
-						continue
-					}
-				} else {
-					conn.Close()
-				}
+			case <-alive:
+				aliveMSG := format_msg.PackingMsg(uint8(3), uint16(0))
+				conn.Write(aliveMSG)
 			}
 		}
 	}

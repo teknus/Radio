@@ -55,7 +55,7 @@ func (server *Server) startStation(names []string, stationChan []*Station) []*St
 			listAll:   make(chan bool, 1),
 		}
 		go station.musicLoop(name, station.buff)
-		go station.HandleClients(station.newClient, station.delClient, station.buff)
+		go station.HandleClients(station.newClient, station.delClient, station.buff, station.listAll, station.closeAll)
 		stations = append(stations, station)
 	}
 	return stations
@@ -72,13 +72,17 @@ func (server *Server) StartServer(arg []string) {
 	for _, station := range arg[2:] {
 		temp = append(temp, station)
 	}
+	closeServer := make(chan bool, 1)
 	go readShell(fromKeyboard)
+	go server.CloseLoop(closeServer)
 	go server.ReadCommands(fromKeyboard, server.listAll, server.closeAll)
-	go server.HandleClients(server.startStation(temp, server.stations), server.changeStation, server.toclientsList, server.listAll, server.closeAll)
+	go server.HandleClients(server.startStation(temp, server.stations), server.changeStation, server.toclientsList, server.listAll, server.closeAll, closeServer)
 	server.AcceptConn(server.ln, server.toclientsList)
 }
 
-func (server *Server) ReadCommands(fromKeyboard chan string, listAll chan bool, closeAll chan bool) {
+func (server *Server) ReadCommands(fromKeyboard chan string,
+	listAll chan bool,
+	closeAll chan bool) {
 	for {
 		select {
 		case msg := <-fromKeyboard:
@@ -94,7 +98,8 @@ func (server *Server) ReadCommands(fromKeyboard chan string, listAll chan bool, 
 	}
 }
 
-func (server *Server) AcceptConn(ln net.Listener, toclientsList chan net.Conn) {
+func (server *Server) AcceptConn(ln net.Listener,
+	toclientsList chan net.Conn) {
 	fmt.Println("Server Up")
 	for {
 		conn, err := ln.Accept()
@@ -104,8 +109,20 @@ func (server *Server) AcceptConn(ln net.Listener, toclientsList chan net.Conn) {
 	}
 }
 
+func (server *Server) CloseLoop(closeServer chan bool) {
+	for {
+		select {
+		case <-closeServer:
+			server.ln.Close()
+			os.Exit(0)
+		}
+	}
+}
 func (server *Server) HandleClients(stations []*Station, changeStation chan *ChangeStation,
-	toclientsList chan net.Conn, listAll chan bool, closeAll chan bool) {
+	toclientsList chan net.Conn,
+	listAll chan bool,
+	closeAll chan bool,
+	closeServer chan bool) {
 	for {
 		select {
 		case newConn := <-toclientsList:
@@ -136,6 +153,7 @@ func (server *Server) HandleClients(stations []*Station, changeStation chan *Cha
 			for _, station := range stations {
 				station.closeAll <- true
 			}
+			closeServer <- true
 		case <-listAll:
 			for _, stations := range stations {
 				stations.listAll <- true
@@ -180,7 +198,7 @@ func (station *Station) musicLoop(name string, buff chan []byte) {
 }
 
 func (station *Station) HandleClients(newClient chan *Client, delClient chan *Client,
-	toAll chan []byte) {
+	toAll chan []byte, listAll chan bool, closeAll chan bool) {
 	clientList := make(map[*Client]Client)
 	station.clientList = clientList
 	for {
@@ -194,6 +212,23 @@ func (station *Station) HandleClients(newClient chan *Client, delClient chan *Cl
 			for _, client := range clientList {
 				client.sendStream <- buffer
 			}
+		case <-listAll:
+			if len(clientList) == 0 {
+				fmt.Println("Station: ", station.name)
+				fmt.Println("Empty\n")
+			} else {
+				for _, client := range clientList {
+					fmt.Println("Station: ", station.name, "\nClient Control: ", client.conn.RemoteAddr().String(), "\nClient UDP", client.connUDP.RemoteAddr().String(), "\n")
+				}
+			}
+		case <-closeAll:
+			for key, client := range clientList {
+				fmt.Println("Fechei closeAll")
+				client.conn.Close()
+				client.connUDP.Close()
+				client.closeKeepAlive <- true
+				delete(clientList, key)
+			}
 		}
 	}
 }
@@ -205,14 +240,15 @@ type ChangeStation struct {
 }
 
 type Client struct {
-	conn          net.Conn
-	connUDP       net.Conn
-	send          chan []byte
-	sendStream    chan []byte
-	udpPort       string
-	station       uint16
-	changeStation chan *ChangeStation
-	numStations   uint16
+	conn           net.Conn
+	connUDP        net.Conn
+	send           chan []byte
+	sendStream     chan []byte
+	udpPort        string
+	station        uint16
+	changeStation  chan *ChangeStation
+	numStations    uint16
+	closeKeepAlive chan bool
 }
 
 func (c *Client) HandleConn(conn net.Conn, send chan []byte,
@@ -224,6 +260,7 @@ func (c *Client) HandleConn(conn net.Conn, send chan []byte,
 			if c.connUDP != nil {
 				_, err := c.connUDP.Write(buff)
 				if err != nil {
+					c.closeKeepAlive <- true
 					return
 				}
 			}
@@ -236,9 +273,34 @@ func (c *Client) HandleConn(conn net.Conn, send chan []byte,
 	}
 }
 
+func (c *Client) keepAlive(conn net.Conn, changestation chan *ChangeStation, closeKeepAlive chan bool) {
+	for {
+		select {
+		case <-closeKeepAlive:
+			c.conn.Close()
+			c.connUDP.Close()
+			return
+		default:
+			time.Sleep(1 * time.Second)
+			_, err := conn.Write(format_msg.PackingStringMsg(uint8(3), uint8(0), "Alive"))
+			if err != nil {
+				c.conn.Close()
+				c.connUDP.Close()
+				changestation <- &ChangeStation{
+					old:    c.station,
+					new:    c.numStations,
+					client: c,
+				}
+				break
+			}
+		}
+	}
+}
+
 func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []byte,
 	changestation chan *ChangeStation) {
 	reader := bufio.NewReader(conn)
+	c.closeKeepAlive = make(chan bool, 1)
 	for {
 		command, err := reader.ReadBytes(byte('\n'))
 		if err == nil {
@@ -249,6 +311,7 @@ func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []b
 					fmt.Println("Error creating UDP conn")
 				}
 				send <- format_msg.PackingMsg(uint8(1), c.numStations)
+				go c.keepAlive(conn, changestation, c.closeKeepAlive)
 			} else if command8 == uint8(1) {
 				changestation <- &ChangeStation{
 					old:    c.station,
@@ -256,24 +319,27 @@ func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []b
 					client: c,
 				}
 			} else if command8 == uint8(2) {
+				fmt.Println("Closed Here")
 				conn.Close()
 				c.connUDP.Close()
+				c.closeKeepAlive <- true
 				changestation <- &ChangeStation{
 					old:    c.station,
 					new:    command16,
 					client: c,
 				}
-			} else if command8 == uint8(3) {
-				send <- format_msg.PackingStringMsg(uint8(3), uint8(0), "Alive")
+				break
 			}
 		} else {
+			c.conn.Close()
+			c.connUDP.Close()
 			changestation <- &ChangeStation{
 				old:    c.station,
 				new:    c.numStations,
 				client: c,
 			}
-			conn.Close()
-			c.connUDP.Close()
+			c.closeKeepAlive <- true
+			break
 		}
 	}
 }
