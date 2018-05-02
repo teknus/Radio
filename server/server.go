@@ -84,10 +84,6 @@ func (server *Server) HandleClients(stations []*Station, changeStation chan *Cha
 			}
 			go client.HandleConn(client.conn, client.send, changeStation, client.sendStream)
 		case change := <-changeStation:
-			for _, st := range stations {
-				fmt.Println(len(st.clientList))
-			}
-			fmt.Println("changing", int(change.old), int(change.new), len(stations))
 			if int(change.old) < len(stations) {
 				stations[int(change.old)].delClient <- change.client
 				if int(change.new) < len(stations) && int(change.new) >= 0 {
@@ -150,11 +146,8 @@ func (station *Station) HandleClients(newClient chan *Client, delClient chan *Cl
 		case client := <-newClient:
 			clientList[client] = *client
 			client.send <- format_msg.PackingStringMsg(uint8(1), uint8(len(station.name)), station.name)
-			fmt.Println("Station add ", station.name, len(clientList))
 		case client := <-delClient:
-			fmt.Println("pre delete Station ", station.name, len(clientList))
 			delete(clientList, client)
-			fmt.Println("Station ", station.name, len(clientList))
 		case buffer := <-toAll:
 			for _, client := range clientList {
 				client.sendStream <- buffer
@@ -211,7 +204,6 @@ func (c *Client) handleMsgs(conn net.Conn, send chan []byte, sendStream chan []b
 		if err == nil {
 			command8, command16 := format_msg.UnpackingMsg(command[:len(command)-1])
 			if command8 == uint8(0) {
-				fmt.Println(command8, command16)
 				c.connUDP, err = net.Dial("udp", "localhost:"+strconv.Itoa(int(command16)))
 				if err != nil {
 					fmt.Println("Error creating UDP conn")

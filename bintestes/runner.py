@@ -1,4 +1,8 @@
-import os
+import os, sys
 
 while True:
-    os.system("./client_listenner | mpg123 -")
+    try:
+        param = "./client_listenner " + sys.argv[1]
+        os.system("{} | mpg123 -".format(param))
+    except KeyboardInterrupt:
+        sys.exit(0)
