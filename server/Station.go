@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/teknus/Radio/format_msg"
+	"github.com/teknus/radio/format_msg"
 )
 
 const buffSize = 1024 * 16

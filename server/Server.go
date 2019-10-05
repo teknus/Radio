@@ -7,7 +7,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/teknus/Radio/format_msg"
+	"github.com/teknus/radio/format_msg"
 )
 
 type Server struct {
