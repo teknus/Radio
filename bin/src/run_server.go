@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/teknus/Radio/server"
+	"github.com/teknus/radio/server"
 )
 
 func main() {

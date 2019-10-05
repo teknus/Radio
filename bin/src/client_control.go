@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/teknus/Radio/format_msg"
+	"github.com/teknus/radio/format_msg"
 )
 
 func readShell(toControl chan<- string) {
